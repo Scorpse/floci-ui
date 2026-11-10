@@ -10,9 +10,9 @@ import {NotSupportedError} from '../cloud-spi/errors'
 import type {CloudResource, CloudServiceAdapter, ResourceQuery, ServiceSchema} from '../cloud-spi/types'
 
 /**
- * The foundation models the emulated Bedrock reports through ListFoundationModels: with Floci's
- * proxy backend these are the Bedrock model ids of its model mapping, i.e. the ids Converse
- * accepts. Read-only; it is the model picker for testing Converse.
+ * The foundation models the emulated Bedrock reports through ListFoundationModels (Floci serves
+ * its model catalogue since upstream PR #7675). Read-only; it is the model picker for testing
+ * Converse.
  */
 export class AwsBedrockModelsAdapter implements CloudServiceAdapter {
     readonly cloud = 'aws' as const
