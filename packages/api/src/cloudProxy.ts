@@ -82,6 +82,7 @@ import {AwsSesAdapter} from './adapter-aws/AwsSesAdapter'
 import {AwsAppConfigAdapter} from './adapter-aws/AwsAppConfigAdapter'
 import {AwsKinesisAdapter} from './adapter-aws/AwsKinesisAdapter'
 import {AwsBedrockAdapter} from './adapter-aws/AwsBedrockAdapter'
+import {AwsBedrockModelsAdapter} from './adapter-aws/AwsBedrockModelsAdapter'
 import {AwsSageMakerAdapter} from './adapter-aws/AwsSageMakerAdapter'
 import {AwsEcsAdapter} from './adapter-aws/AwsEcsAdapter'
 import {AwsRegistryAdapter} from './adapter-aws/AwsRegistryAdapter'
@@ -139,6 +140,7 @@ export function createCloudAdapterRegistry(accountId?: string | null, region?: s
         new AwsKinesisAdapter(clients.kinesis),
         new AwsSageMakerAdapter(clients.sagemaker),
         new AwsBedrockAdapter(clients.bedrock),
+        new AwsBedrockModelsAdapter(clients.bedrock),
         new AwsEcsAdapter(clients.ecs),
         new AwsRegistryAdapter(clients.ecr),
         new AwsCloudFrontAdapter(clients.cloudfront),
