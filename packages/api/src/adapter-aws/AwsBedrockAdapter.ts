@@ -12,8 +12,8 @@ import {ValidationError} from '../cloud-spi/errors'
 import type {CloudResource, CloudServiceAdapter, CreateResourceInput, ResourceQuery, ServiceSchema} from '../cloud-spi/types'
 
 /**
- * Amazon Bedrock control plane as Floci emulates it: guardrails. Floci does not emulate
- * ListFoundationModels or ListInferenceProfiles, so no model list is offered here.
+ * Amazon Bedrock control plane as Floci emulates it: guardrails. The model list is a separate
+ * service, AwsBedrockModelsAdapter.
  */
 export class AwsBedrockAdapter implements CloudServiceAdapter {
     readonly cloud = 'aws' as const

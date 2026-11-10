@@ -109,6 +109,8 @@ Generated from the service catalog and adapter registry, so it never drifts. Aft
 | Compute | Containers | ✅ | ✅ | ✅ | – |
 | Compute | Container Registry | ✅ | ✅ | – | – |
 | Compute | SageMaker AI | ✅ | – | – | – |
+| Compute | Bedrock (guardrails) | ✅ | – | – | – |
+| Compute | Bedrock models (read-only) | ✅ | – | – | – |
 | Storage | Storage | ✅ | ✅ | ✅ | ✅ |
 | Storage | Table Storage | – | ✅ | – | – |
 | Databases | Database | ✅ | ✅ | ✅ | ✅ |

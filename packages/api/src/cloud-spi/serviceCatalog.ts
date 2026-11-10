@@ -110,6 +110,11 @@ export const SERVICE_CATALOG = {
         description: 'Manage Bedrock guardrails.',
         iconKey: 'sagemaker', group: 'Compute', order: 51,
     },
+    bedrockModels: {
+        displayName: 'Bedrock models',
+        description: 'Foundation models the simulated Bedrock serves (the Converse model picker).',
+        iconKey: 'sagemaker', group: 'Compute', order: 52,
+    },
     storage: {
         displayName: 'Storage',
         description: 'Store and manage files and objects.',
