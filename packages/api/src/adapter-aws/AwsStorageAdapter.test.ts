@@ -656,3 +656,95 @@ describe('withDeadline', () => {
         expect(seen?.aborted).toBe(true)
     })
 })
+
+describe('AwsStorageAdapter bucket governance', () => {
+    function governanceS3(answers: Record<string, unknown>): S3Client {
+        return {
+            send: async (command: unknown) => {
+                if (command instanceof ListBucketsCommand) {
+                    return {Buckets: [{Name: 'evidence', CreationDate: new Date('2026-01-01')}]}
+                }
+                if (command instanceof GetBucketTaggingCommand) return {TagSet: []}
+                const answer = answers[command?.constructor?.name ?? '']
+                if (answer instanceof Error) throw answer
+                return answer ?? {}
+            },
+        } as unknown as S3Client
+    }
+
+    function named(name: string): Error {
+        return Object.assign(new Error(name), {name})
+    }
+
+    test('get reports Object Lock, lifecycle rules and default encryption', async () => {
+        const adapter = new AwsStorageAdapter(governanceS3({
+            GetBucketVersioningCommand: {Status: 'Enabled'},
+            GetObjectLockConfigurationCommand: {
+                ObjectLockConfiguration: {ObjectLockEnabled: 'Enabled', Rule: {DefaultRetention: {Mode: 'COMPLIANCE', Days: 30}}},
+            },
+            GetBucketLifecycleConfigurationCommand: {
+                Rules: [{
+                    ID: 'expire-tmp',
+                    Status: 'Enabled',
+                    Filter: {Prefix: 'tmp/'},
+                    Expiration: {Days: 7},
+                    NoncurrentVersionExpiration: {NoncurrentDays: 3},
+                    Transitions: [{Days: 30, StorageClass: 'GLACIER'}],
+                }],
+            },
+            GetBucketEncryptionCommand: {
+                ServerSideEncryptionConfiguration: {
+                    Rules: [{ApplyServerSideEncryptionByDefault: {SSEAlgorithm: 'aws:kms', KMSMasterKeyID: 'alias/evidence'}, BucketKeyEnabled: true}],
+                },
+            },
+        }))
+
+        const bucket = await adapter.get('evidence')
+
+        expect(bucket?.metadata).toMatchObject({
+            versioning: 'Enabled',
+            objectLock: {enabled: true, defaultMode: 'COMPLIANCE', defaultDays: 30, defaultYears: null},
+            lifecycleRules: [{
+                id: 'expire-tmp', status: 'Enabled', prefix: 'tmp/', expirationDays: 7, noncurrentExpirationDays: 3,
+                transitions: [{days: 30, storageClass: 'GLACIER'}],
+            }],
+            encryption: {algorithm: 'aws:kms', kmsKeyId: 'alias/evidence', bucketKeyEnabled: true},
+        })
+    })
+
+    test('a bucket with none of them is reported as such, not as unknown', async () => {
+        const adapter = new AwsStorageAdapter(governanceS3({
+            GetBucketVersioningCommand: {},
+            GetObjectLockConfigurationCommand: named('ObjectLockConfigurationNotFoundError'),
+            GetBucketLifecycleConfigurationCommand: named('NoSuchLifecycleConfiguration'),
+            GetBucketEncryptionCommand: named('ServerSideEncryptionConfigurationNotFoundError'),
+        }))
+
+        const bucket = await adapter.get('evidence')
+
+        expect(bucket?.metadata).toMatchObject({versioning: 'Disabled', objectLock: {enabled: false}, lifecycleRules: [], encryption: 'None'})
+    })
+
+    test('a failed read is Unknown and does not fail the inspection', async () => {
+        const adapter = new AwsStorageAdapter(governanceS3({
+            GetBucketVersioningCommand: {Status: 'Suspended'},
+            GetObjectLockConfigurationCommand: named('InternalError'),
+            GetBucketLifecycleConfigurationCommand: named('AccessDenied'),
+            GetBucketEncryptionCommand: named('InternalError'),
+        }))
+
+        const bucket = await adapter.get('evidence')
+
+        expect(bucket?.metadata).toMatchObject({versioning: 'Suspended', objectLock: 'Unknown', lifecycleRules: 'Unknown', encryption: 'Unknown'})
+    })
+
+    test('list does not read any of them', async () => {
+        const adapter = new AwsStorageAdapter(governanceS3({GetObjectLockConfigurationCommand: named('InternalError')}))
+
+        const [bucket] = await adapter.list()
+
+        expect(bucket.metadata).not.toHaveProperty('objectLock')
+        expect(bucket.metadata).not.toHaveProperty('lifecycleRules')
+        expect(bucket.metadata).not.toHaveProperty('encryption')
+    })
+})
