@@ -105,6 +105,11 @@ export const SERVICE_CATALOG = {
         description: 'Build and host machine learning models.',
         iconKey: 'sagemaker', group: 'Compute', order: 50,
     },
+    bedrock: {
+        displayName: 'Bedrock',
+        description: 'Manage Bedrock guardrails.',
+        iconKey: 'sagemaker', group: 'Compute', order: 51,
+    },
     storage: {
         displayName: 'Storage',
         description: 'Store and manage files and objects.',
