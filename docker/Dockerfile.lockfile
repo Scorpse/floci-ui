@@ -1,0 +1,49 @@
+# Reproducible build of the local fork of Floci UI, straight from a checkout:
+#
+#   docker build -f docker/Dockerfile.lockfile -t floci-ui-local:<tag> .
+#
+# docker/Dockerfile (upstream) runs `npm install` without a lockfile, which fails on
+# current npm ("Cannot read properties of null (reading 'edgesOut')") and floats versions.
+# This file installs from pnpm-lock.yaml (--frozen-lockfile), so one commit always builds
+# the same dependency tree, then compiles the API with the same bun flags as upstream.
+
+# Stage 1: dependencies and frontend bundle
+FROM node:24-alpine AS build
+ENV PNPM_HOME=/pnpm
+ENV PATH=$PNPM_HOME:$PATH
+RUN corepack enable
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/api/package.json packages/api/
+COPY packages/frontend/package.json packages/frontend/
+RUN pnpm install --frozen-lockfile
+COPY packages/ packages/
+RUN pnpm --filter @floci/frontend build
+
+# Stage 2: compile the API to a self-contained binary (resolves from the pnpm node_modules)
+FROM oven/bun:1-alpine AS api-build
+WORKDIR /app
+COPY --from=build /app/ ./
+RUN cd packages/api && bun build --compile --minify src/index.ts --outfile /server
+
+# Stage 3: minimal runtime (no bun, no node_modules)
+FROM alpine:3
+RUN apk add --no-cache ca-certificates libstdc++
+WORKDIR /app
+COPY --from=api-build /server ./server
+COPY --from=build /app/packages/frontend/dist ./public
+ENV PORT=4500
+EXPOSE 4500
+
+ARG VERSION=dev
+LABEL org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.source="https://github.com/floci-io/floci-ui"
+
+# Floci Console Contract v2: emulators that start this console as a sidecar read these.
+LABEL io.floci.console.contract="2" \
+      io.floci.console.name="Floci UI" \
+      io.floci.console.port="4500" \
+      io.floci.console.health-path="/api/health" \
+      io.floci.console.clouds="aws,az,gcp,oci"
+
+CMD ["./server"]
