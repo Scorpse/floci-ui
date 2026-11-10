@@ -27,6 +27,7 @@ import { AppConfigClient } from "@aws-sdk/client-appconfig";
 import { CognitoIdentityProviderClient } from "@aws-sdk/client-cognito-identity-provider";
 import { DSQLClient } from "@aws-sdk/client-dsql";
 import { KinesisClient } from "@aws-sdk/client-kinesis";
+import { BedrockClient } from "@aws-sdk/client-bedrock";
 import { SageMakerClient } from "@aws-sdk/client-sagemaker";
 import { ECSClient } from "@aws-sdk/client-ecs";
 import { ECRClient } from "@aws-sdk/client-ecr";
@@ -130,6 +131,7 @@ export type AwsClients = {
   appConfig: AppConfigClient;
   cognito: CognitoIdentityProviderClient;
   kinesis: KinesisClient;
+  bedrock: BedrockClient;
   sagemaker: SageMakerClient;
   ecs: ECSClient;
   ecr: ECRClient;
@@ -181,6 +183,7 @@ function buildClients(accountId: string, region: string): AwsClients {
     appConfig: new AppConfigClient(base),
     cognito: new CognitoIdentityProviderClient(base),
     kinesis: new KinesisClient(base),
+    bedrock: new BedrockClient(base),
     sagemaker: new SageMakerClient(base),
     ecs: new ECSClient(base),
     ecr: new ECRClient(base),

@@ -112,6 +112,11 @@ export const SERVICE_CATALOG = {
         docsSlugByCloud: {aws: 'sagemaker'},
         iconKey: 'sagemaker', group: 'Compute', order: 50,
     },
+    bedrock: {
+        displayName: 'Bedrock',
+        description: 'Manage Bedrock guardrails.',
+        iconKey: 'sagemaker', group: 'Compute', order: 51,
+    },
     storage: {
         displayName: 'Storage',
         description: 'Store and manage files and objects.',
