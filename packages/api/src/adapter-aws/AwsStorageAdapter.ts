@@ -13,8 +13,11 @@ import {
     DeleteBucketCommand,
     DeleteObjectCommand,
     DeleteObjectsCommand,
+    GetBucketEncryptionCommand,
+    GetBucketLifecycleConfigurationCommand,
     GetBucketTaggingCommand,
     GetBucketVersioningCommand,
+    GetObjectLockConfigurationCommand,
     GetObjectCommand,
     ListBucketsCommand,
     ListObjectsV2Command,
@@ -116,7 +119,67 @@ export class AwsStorageAdapter implements CloudServiceAdapter {
         const resources = await this.list()
         const resource = resources.find((candidate) => candidate.id === id)
         if (!resource) return null
-        return {...resource, metadata: {...resource.metadata, versioning: await this.bucketVersioning(id)}}
+        const [versioning, objectLock, lifecycleRules, encryption] = await Promise.all([
+            this.bucketVersioning(id),
+            this.bucketObjectLock(id),
+            this.bucketLifecycle(id),
+            this.bucketEncryption(id),
+        ])
+        return {...resource, metadata: {...resource.metadata, versioning, objectLock, lifecycleRules, encryption}}
+    }
+
+    /**
+     * Object Lock of a bucket: Disabled when it was never configured (S3 answers
+     * ObjectLockConfigurationNotFoundError), Unknown when the read failed for another reason.
+     */
+    private async bucketObjectLock(bucketName: string): Promise<unknown> {
+        try {
+            const res = await this.s3.send(new GetObjectLockConfigurationCommand({Bucket: bucketName}))
+            const lock = res.ObjectLockConfiguration
+            if (!lock || lock.ObjectLockEnabled !== 'Enabled') return {enabled: false}
+            const retention = lock.Rule?.DefaultRetention
+            return {
+                enabled: true,
+                defaultMode: retention?.Mode ?? null,
+                defaultDays: retention?.Days ?? null,
+                defaultYears: retention?.Years ?? null,
+            }
+        } catch (error) {
+            return errorName(error) === 'ObjectLockConfigurationNotFoundError' ? {enabled: false} : 'Unknown'
+        }
+    }
+
+    /** Lifecycle rules in a readable shape; an empty list when the bucket has none, Unknown on a failed read. */
+    private async bucketLifecycle(bucketName: string): Promise<unknown> {
+        try {
+            const res = await this.s3.send(new GetBucketLifecycleConfigurationCommand({Bucket: bucketName}))
+            return (res.Rules ?? []).map((rule) => ({
+                id: rule.ID ?? null,
+                status: rule.Status ?? null,
+                prefix: rule.Filter?.Prefix ?? rule.Filter?.And?.Prefix ?? rule.Prefix ?? null,
+                tags: rule.Filter?.Tag ? [rule.Filter.Tag] : rule.Filter?.And?.Tags ?? [],
+                expirationDays: rule.Expiration?.Days ?? null,
+                expiredObjectDeleteMarker: rule.Expiration?.ExpiredObjectDeleteMarker ?? null,
+                noncurrentExpirationDays: rule.NoncurrentVersionExpiration?.NoncurrentDays ?? null,
+                abortIncompleteMultipartUploadDays: rule.AbortIncompleteMultipartUpload?.DaysAfterInitiation ?? null,
+                transitions: (rule.Transitions ?? []).map((t) => ({days: t.Days ?? null, storageClass: t.StorageClass ?? null})),
+            }))
+        } catch (error) {
+            return errorName(error) === 'NoSuchLifecycleConfiguration' ? [] : 'Unknown'
+        }
+    }
+
+    /** Default encryption: the algorithm and key, None when the bucket has no configuration, Unknown on a failed read. */
+    private async bucketEncryption(bucketName: string): Promise<unknown> {
+        try {
+            const res = await this.s3.send(new GetBucketEncryptionCommand({Bucket: bucketName}))
+            const rule = res.ServerSideEncryptionConfiguration?.Rules?.[0]
+            const sse = rule?.ApplyServerSideEncryptionByDefault
+            if (!sse) return 'None'
+            return {algorithm: sse.SSEAlgorithm ?? null, kmsKeyId: sse.KMSMasterKeyID ?? null, bucketKeyEnabled: rule?.BucketKeyEnabled ?? null}
+        } catch (error) {
+            return errorName(error) === 'ServerSideEncryptionConfigurationNotFoundError' ? 'None' : 'Unknown'
+        }
     }
 
     /**
@@ -410,4 +473,8 @@ function objectName(key: string, prefix: string): string {
 
 function isValidS3BucketName(value: string): boolean {
     return /^(?!\d+\.\d+\.\d+\.\d+$)(?!.*\.\.)(?!.*\.-)(?!.*-\.)(?!.*--x-s3$)(?!.*-s3alias$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(value)
+}
+
+function errorName(error: unknown): string | undefined {
+    return error && typeof error === 'object' ? (error as {name?: string}).name : undefined
 }

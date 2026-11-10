@@ -5,6 +5,7 @@ import {
     DeleteQueueCommand,
     GetQueueAttributesCommand,
     GetQueueUrlCommand,
+    ListDeadLetterSourceQueuesCommand,
     ListQueuesCommand,
     PurgeQueueCommand,
     ReceiveMessageCommand,
@@ -691,5 +692,71 @@ describe('AwsSqsAdapter', () => {
     test('reports a missing queue on purge rather than silently succeeding', async () => {
         const {client} = stubSqs({missingQueue: true})
         await expect(new AwsSqsAdapter(client).purgeQueue('nope')).rejects.toBeInstanceOf(NotFoundError)
+    })
+})
+
+describe('AwsSqsAdapter dead-letter topology', () => {
+    const DLQ_ARN = 'arn:aws:sqs:eu-central-1:000000000000:orders-dlq'
+
+    test('a queue shows the dead-letter queue and receive count it redrives to', async () => {
+        const {client} = stubSqs({
+            attributes: {
+                ...ORDERS_ATTRIBUTES,
+                RedrivePolicy: JSON.stringify({deadLetterTargetArn: DLQ_ARN, maxReceiveCount: 5}),
+                KmsMasterKeyId: 'alias/queues',
+            },
+        })
+
+        const [resource] = await new AwsSqsAdapter(client).list()
+
+        expect(resource.metadata).toMatchObject({
+            deadLetterTargetArn: DLQ_ARN,
+            deadLetterQueue: 'orders-dlq',
+            maxReceiveCount: 5,
+            kmsMasterKeyId: 'alias/queues',
+        })
+    })
+
+    test('a queue without a redrive policy has no dead-letter queue', async () => {
+        const [resource] = await new AwsSqsAdapter(stubSqs().client).list()
+
+        expect(resource.metadata).toMatchObject({deadLetterTargetArn: null, deadLetterQueue: null, maxReceiveCount: null, redrivePolicy: null})
+    })
+
+    test('inspecting a queue lists the queues that use it as their dead-letter queue', async () => {
+        const sent: object[] = []
+        const base = stubSqs().client
+        const client = {
+            async send(command: object) {
+                sent.push(command)
+                if (command instanceof ListDeadLetterSourceQueuesCommand) {
+                    return {queueUrls: [`${BASE}/orders-queue`, `${BASE}/billing-queue`]}
+                }
+                return base.send(command as never)
+            },
+        } as unknown as SQSClient
+
+        const resource = await new AwsSqsAdapter(client).get('orders-dlq')
+
+        expect(resource?.metadata.deadLetterSourceQueues).toEqual(['orders-queue', 'billing-queue'])
+        expect(sent.some((command) => command instanceof ListDeadLetterSourceQueuesCommand)).toBe(true)
+    })
+
+    test('list does not ask for dead-letter sources, and a failed lookup is null rather than an error', async () => {
+        const sent: object[] = []
+        const base = stubSqs().client
+        const client = {
+            async send(command: object) {
+                sent.push(command)
+                if (command instanceof ListDeadLetterSourceQueuesCommand) throw new Error('not implemented')
+                return base.send(command as never)
+            },
+        } as unknown as SQSClient
+
+        await new AwsSqsAdapter(client).list()
+        expect(sent.some((command) => command instanceof ListDeadLetterSourceQueuesCommand)).toBe(false)
+
+        const resource = await new AwsSqsAdapter(client).get('orders-queue')
+        expect(resource?.metadata.deadLetterSourceQueues).toBeNull()
     })
 })

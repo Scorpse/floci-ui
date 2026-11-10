@@ -4,6 +4,7 @@ import {
     DeleteQueueCommand,
     GetQueueAttributesCommand,
     GetQueueUrlCommand,
+    ListDeadLetterSourceQueuesCommand,
     ListQueuesCommand,
     PurgeQueueCommand,
     ReceiveMessageCommand,
@@ -48,6 +49,9 @@ interface QueueAttributes {
     CreatedTimestamp?: string
     LastModifiedTimestamp?: string
     FifoQueue?: string
+    RedrivePolicy?: string
+    RedriveAllowPolicy?: string
+    KmsMasterKeyId?: string
 }
 
 export class AwsSqsAdapter implements CloudServiceAdapter {
@@ -80,7 +84,27 @@ export class AwsSqsAdapter implements CloudServiceAdapter {
     async get(id: string): Promise<CloudResource | null> {
         const url = await this.queueUrl(id)
         if (!url) return null
-        return toResource(id, url, await this.attributesFor(url))
+        const resource = toResource(id, url, await this.attributesFor(url))
+        return {...resource, metadata: {...resource.metadata, deadLetterSourceQueues: await this.deadLetterSources(url)}}
+    }
+
+    /**
+     * The queues that use this one as their dead-letter queue, by name. Null when the runtime
+     * cannot say, which is not the same as an empty list.
+     */
+    private async deadLetterSources(url: string): Promise<string[] | null> {
+        try {
+            const urls: string[] = []
+            let nextToken: string | undefined
+            do {
+                const res = await this.sqs.send(new ListDeadLetterSourceQueuesCommand({QueueUrl: url, NextToken: nextToken}))
+                urls.push(...(res.queueUrls ?? []))
+                nextToken = res.NextToken
+            } while (nextToken)
+            return urls.map(queueNameFromUrl)
+        } catch {
+            return null
+        }
     }
 
     async create(input: CreateResourceInput): Promise<CloudResource> {
@@ -309,7 +333,34 @@ function toResource(name: string, url: string, attributes: QueueAttributes): Clo
             delaySeconds: numberValue(attributes.DelaySeconds),
             receiveMessageWaitTimeSeconds: numberValue(attributes.ReceiveMessageWaitTimeSeconds),
             lastModified: epochSecondsToIso(attributes.LastModifiedTimestamp),
+            ...redriveMetadata(attributes),
+            kmsMasterKeyId: attributes.KmsMasterKeyId ?? null,
         },
+    }
+}
+
+/**
+ * The dead-letter topology a queue declares itself: where its messages go after too many
+ * receives, and who may use it as a dead-letter queue. RedrivePolicy is a JSON string.
+ */
+function redriveMetadata(attributes: QueueAttributes): Record<string, unknown> {
+    let target: string | null = null
+    let maxReceiveCount: number | null = null
+    if (attributes.RedrivePolicy) {
+        try {
+            const policy = JSON.parse(attributes.RedrivePolicy) as {deadLetterTargetArn?: string; maxReceiveCount?: number | string}
+            target = policy.deadLetterTargetArn ?? null
+            maxReceiveCount = policy.maxReceiveCount === undefined ? null : Number(policy.maxReceiveCount)
+        } catch {
+            // A policy the runtime stored but this cannot read is shown raw below, not guessed at.
+        }
+    }
+    return {
+        deadLetterTargetArn: target,
+        deadLetterQueue: target ? target.split(':').pop() ?? null : null,
+        maxReceiveCount,
+        redrivePolicy: attributes.RedrivePolicy ?? null,
+        redriveAllowPolicy: attributes.RedriveAllowPolicy ?? null,
     }
 }
 
