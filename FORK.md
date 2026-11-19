@@ -39,6 +39,11 @@ Not published to any registry.
 
 ## Tests
 
+Use Bun 1.4.5 for the Windows checks. Bun 1.3.12 stalls in the health-probe timeout test.
+On Windows, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` when running the API tests so their child-process
+probe can finish, and run frontend tests with `pnpm --filter @floci/frontend exec vitest run --maxWorkers=2`
+to keep asynchronous UI assertions reliable under load.
+
 ```bash
 pnpm install --frozen-lockfile
 pnpm --filter @floci/api type-check && (cd packages/api && bun test)
